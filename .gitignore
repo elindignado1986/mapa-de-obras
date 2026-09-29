@@ -5,3 +5,9 @@ urban.bundle.js
 data-source/arba/*/
 data/amba/*/
 test-results/
+server/works/geometry.cjs
+data/works-ocr/
+data/works-index/
+.env
+.env.*
+!.env.example

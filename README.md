@@ -1,5 +1,7 @@
 # Mapa de sombras · AMBA
 
+La entrada principal es ahora el **Explorador de Obras**. El **Simulador de Obras** existente continúa disponible desde la navegación y `/#simulador`; sus enlaces y guardado local se conservan. El registro público requiere Redis, Blob privado y un worker separado. Sin esos servicios, la aplicación informa la falta de configuración y mantiene operativo el simulador. Ver [implementación, configuración y validación del Explorador](docs/WORKS-EXPLORER.md).
+
 Simulador comunitario de asoleamiento con 77.651 parcelas de Tres de Febrero. También está habilitado Hurlingham, con 44.162 parcelas; Castelar se ofrece como localidad dentro de Morón; el resto de Morón y los demás municipios permanecen deshabilitados.
 
 ## Ejecutar

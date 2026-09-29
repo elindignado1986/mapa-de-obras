@@ -8,18 +8,25 @@
     "test": "node --test tests/*.test.mjs",
     "test:browser": "node scripts/check-revision.cjs",
     "data:fetch": "node scripts/fetch-arba.cjs",
-    "data:build": "node scripts/build-map-data.mjs"
+    "data:build": "node scripts/build-map-data.mjs",
+    "works:worker": "node scripts/works-worker.cjs",
+    "test:works:browser": "node scripts/check-works.cjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "esbuild": "0.28.2"
   },
   "dependencies": {
+    "@tesseract.js-data/spa": "^1.0.0",
+    "@vercel/blob": "^2.8.0",
+    "@zxing/browser": "^0.2.1",
     "earcut": "^3.2.3",
     "fflate": "^0.8.3",
     "polygon-clipping": "^0.15.7",
     "proj4": "^2.22.0",
     "qrcode": "^1.5.4",
-    "shpjs": "^6.2.0"
+    "sharp": "^0.35.5",
+    "shpjs": "^6.2.0",
+    "tesseract.js": "^7.0.0"
   }
 }

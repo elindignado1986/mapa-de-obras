@@ -1,1 +1,43 @@
-{"buildCommand":"npm run build","outputDirectory":"publicar","rewrites":[{"source":"/embed/:path*","destination":"/index.html"}],"headers":[{"source":"/embed/:path*","headers":[{"key":"Content-Security-Policy","value":"frame-ancestors *"}]},{"source":"/(.*)","headers":[{"key":"Referrer-Policy","value":"no-referrer"},{"key":"X-Content-Type-Options","value":"nosniff"}]}]}
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "publicar",
+  "rewrites": [
+    {
+      "source": "/embed/:path*",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/embed/:path*",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "frame-ancestors *"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        }
+      ]
+    }
+  ],
+  "functions": {
+    "api/works.js": {
+      "includeFiles": "server/works/**",
+      "maxDuration": 30
+    },
+    "api/works-photo.js": {
+      "maxDuration": 30
+    }
+  }
+}

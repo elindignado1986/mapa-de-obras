@@ -5,6 +5,14 @@ const esbuild=require('esbuild');
 
 async function build(){
   const root=path.resolve(__dirname,'..');
+  await esbuild.build({stdin:{contents:"export {connected,mergeParcels} from './src/parcel-selection.js'; export {center,validRing,footprintWithin} from './src/geometry.js';",resolveDir:root},bundle:true,platform:'node',format:'cjs',outfile:path.join(root,'server/works/geometry.cjs')});
+  require('./build-works-index.cjs').buildWorksIndex(root);
+  const ocrOutput=path.join(root,'data/works-ocr');
+  fs.mkdirSync(ocrOutput,{recursive:true});
+  fs.copyFileSync(path.join(root,'node_modules/tesseract.js/dist/worker.min.js'),path.join(ocrOutput,'worker.min.js'));
+  for(const name of fs.readdirSync(path.join(root,'node_modules/tesseract.js-core')))if(/\.(wasm|js)$/.test(name))fs.copyFileSync(path.join(root,'node_modules/tesseract.js-core',name),path.join(ocrOutput,name));
+  const spanish=path.join(root,'node_modules/@tesseract.js-data/spa/4.0.0_best_int/spa.traineddata.gz');
+  if(fs.existsSync(spanish))fs.copyFileSync(spanish,path.join(ocrOutput,'spa.traineddata.gz'));
   const manifestPath=path.join(root,'data/amba/municipality-manifest.json');
   if (process.env.VERCEL && fs.existsSync(manifestPath)) {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
