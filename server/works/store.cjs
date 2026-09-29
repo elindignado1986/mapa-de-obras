@@ -1,10 +1,21 @@
 const crypto = require('node:crypto');
 const PREFIX = 'works:v1:';
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
-function configured() { return Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN); }
+function credentials() {
+  // The Marketplace adds the custom prefix to the existing KV_* names.
+  // Keep each URL/token pair together; never substitute a read-only token.
+  for (const prefix of ['', 'kv_', 'KV_']) {
+    const url=process.env[prefix+'KV_REST_API_URL'];
+    const token=process.env[prefix+'KV_REST_API_TOKEN'];
+    if(url&&token)return {url,token};
+  }
+  return null;
+}
+function configured() { return Boolean(credentials()); }
 async function redis(command) {
-  if (!configured()) throw Object.assign(Error('El registro público necesita KV_REST_API_URL y KV_REST_API_TOKEN en el servidor.'), {status:503});
-  const response = await fetch(process.env.KV_REST_API_URL, {method:'POST', headers:{Authorization:`Bearer ${process.env.KV_REST_API_TOKEN}`, 'Content-Type':'application/json'}, body:JSON.stringify(command), signal:AbortSignal.timeout(7000)});
+  const connection=credentials();
+  if (!connection) throw Object.assign(Error('El registro público necesita KV_REST_API_URL y KV_REST_API_TOKEN en el servidor (también se acepta el prefijo kv_ o KV_).'), {status:503});
+  const response = await fetch(connection.url, {method:'POST', headers:{Authorization:`Bearer ${connection.token}`, 'Content-Type':'application/json'}, body:JSON.stringify(command), signal:AbortSignal.timeout(7000)});
   if (!response.ok) throw Error('No se pudo acceder al registro. Intentá nuevamente.');
   const data = await response.json();
   if (data.error) throw Error('No se pudo guardar o consultar el registro.');

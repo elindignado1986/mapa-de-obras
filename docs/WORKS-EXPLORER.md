@@ -29,6 +29,8 @@ Esta evolución se implementó en `E:\Nueva carpeta\mapa-de-sombras_v2`. La vers
 
 Las variables `KV_REST_API_READ_ONLY_TOKEN`, `KV_REST_API_KV_URL` y `KV_REST_API_REDIS_URL` no sirven para este flujo de escritura REST y no se incluyen en el cliente. No se leyó ni alteró la configuración remota del proyecto.
 
+Si la integración se conectó con prefijo personalizado `kv` o `KV`, el registro también reconoce los pares `kv_KV_REST_API_URL` / `kv_KV_REST_API_TOKEN` y `KV_KV_REST_API_URL` / `KV_KV_REST_API_TOKEN`. El prefijo se agrega a los nombres originales; no los reemplaza. Se prioriza el par sin prefijo si ambos están configurados y nunca se mezclan credenciales de pares distintos. No hace falta copiar ni revelar secretos para usar la conexión existente. Este reconocimiento se aplica al registro de obras y su worker.
+
 Referencias consultadas: [Redis REST y Lua de Upstash](https://upstash.com/docs/redis/features/restapi), [SDK de Vercel Blob](https://vercel.com/docs/vercel-blob/using-blob-sdk) y [almacenamiento privado](https://vercel.com/docs/vercel-blob/private-storage). La integración implementada usa estos protocolos, pero todavía no fue validada contra las cuentas reales de este proyecto.
 
 ## Desarrollo local
