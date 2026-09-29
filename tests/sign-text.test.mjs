@@ -6,6 +6,23 @@ const require=createRequire(import.meta.url);
 const {extractSignText}=require('../server/works/sign-text.cjs');
 const {eligibility}=require('../server/works/publication.cjs');
 
+test('address readings tolerate OCR label substitutions and line breaks without reading department names',()=>{
+ for(const label of ['DIRECCIÓN','D1RECC1ON','DIRECClÓN','DIREC CION']){
+  const e=extractSignText(label+'\nAVIADOR WERNICKE\n2236\nAltura: 23.35 m');
+  assert.equal(e.fields.address?.value,'AVIADOR WERNICKE 2236',label);assert.equal(e.fields.height.value,23.35);
+ }
+ for(const text of ['Dirección General de Obras Privadas','DIRECCIÓN:\nEXPEDIENTE: 1234','Dirección técnica de obra: Persona'])assert.equal(extractSignText(text).fields.address,undefined);
+});
+
+test('OCR passes agree despite formatting and a cropped address, but differing house numbers need a choice',()=>{
+ const e=extractSignText('Dirección: AVIADOR   WERNICKE 2236\nDirección: Aviador Wernicke 2236.\nDirección: AVIADOR WERNICKE\nAltura: 23.35 m');
+ assert.equal(e.fields.address?.value,'Aviador Wernicke 2236.');assert.equal(e.fields.height.value,23.35);
+ const conflict=extractSignText('Dirección: AVIADOR WERNICKE 2236\nDirección: AVIADOR WERNICKE 2238\nAltura: 23.35 m');
+ assert.equal(conflict.fields.address,undefined);assert.equal(conflict.candidates.address.length,2);assert.equal(conflict.fields.height.value,23.35);
+ const table=extractSignText('Dirección: AVIADOR WERNICKE 2236 0.60 3.06 680 23.95\nDirección: AVIADOR WERNICKE 2236');
+ assert.equal(table.fields.address?.value,'AVIADOR WERNICKE 2236');
+});
+
 test('actual pasted OCR keeps useful fields despite QR noise and interleaved headings',()=>{
  const raw=fs.readFileSync(new URL('./fixtures/sign-noisy.txt',import.meta.url),'utf8');
  const e=extractSignText(raw);

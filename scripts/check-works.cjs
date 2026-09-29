@@ -31,7 +31,7 @@ async function mockAPI(context){
   return send({error:'Acción no simulada'},400);
  });
  await context.route('**/api/works-photo?**',route=>{job.revision++;return route.fulfill({json:{photo:true,revision:job.revision}});});
- await context.route('https://photon.komoot.io/**',route=>route.fulfill({json:{features:[{properties:{countrycode:'AR',county:'Partido de Tres de Febrero',street:'Aviador Wernicke',housenumber:'2236'},geometry:{type:'Point',coordinates:parcelPoint}}]}}));
+ await context.route('https://photon.komoot.io/**',route=>route.fulfill({json:{features:[{properties:{countrycode:'AR',county:'Partido de Tres de Febrero',street:'Aviador Wernicke',housenumber:'2236'},geometry:{type:'Point',coordinates:parcelPoint}},{properties:{countrycode:'AR',county:'Partido de Tres de Febrero',type:'street',name:'749 - Aviador Germán Wernicke',extent:[parcelPoint[0]-.001,parcelPoint[1]+.001,parcelPoint[0]+.001,parcelPoint[1]-.001]},geometry:{type:'Point',coordinates:parcelPoint}},{properties:{countrycode:'AR',county:'Partido de Tres de Febrero',type:'house',osm_key:'highway',osm_value:'bus_stop',name:'Wernicke y Argentinas',street:'749 - Aviador Germán Wernicke'},geometry:{type:'Point',coordinates:parcelPoint}}]}}));
  await context.route('https://cdn.cafecito.app/**',route=>route.abort());
 }
 (async()=>{
@@ -59,11 +59,21 @@ async function mockAPI(context){
   assert.equal(await page.locator('#buildingHeight').inputValue(),'24.35');assert.match(await page.locator('#signSaveStatus').innerText(),/solo en esta sesión/);assert.equal(job.previewFields.height,23.35);
   failPreview=false;await page.locator('#signHeight').fill('23.35');
   await page.locator('#correctSignLocation').click();assert.equal(await page.evaluate(()=>document.body.classList.contains('works-volume')),false);assert.equal(await page.evaluate(()=>Urban.selections.length),0);assert(await page.locator('#address').isVisible());
-  await page.locator('#signAddress').fill('Aviador Wernicke 2237');await page.locator('#viewSignMap').click();await page.waitForFunction(()=>!document.body.classList.contains('works-busy'));assert.equal(await page.evaluate(()=>document.body.classList.contains('works-volume')),false);assert(await page.locator('#previewChoices button').count()>0);
+  await page.locator('#signAddress').fill('Aviador Wernicke 2237');await page.locator('#viewSignMap').click();await page.waitForFunction(()=>!document.body.classList.contains('works-busy'));assert.equal(await page.evaluate(()=>document.body.classList.contains('works-volume')),false);assert.equal(await page.locator('#previewChoices button').count(),1);assert.match(await page.locator('#previewChoices').innerText(),/Ubicar calle/);assert.doesNotMatch(await page.locator('#previewChoices').innerText(),/2236|749|Argentinas/);assert.equal(await page.locator('#signAddress').inputValue(),'Aviador Wernicke 2237');
   await page.locator('#previewChoices button').first().click();await page.waitForFunction(()=>!document.body.classList.contains('works-busy'));assert.equal(await page.evaluate(()=>Urban.selections.length),0);
   await page.locator('#signAddress').fill('AVIADOR WERNICKE 2236');await page.locator('#viewSignMap').click();await page.waitForFunction(()=>!document.body.classList.contains('works-busy'));assert.equal(await page.locator('#buildingHeight').inputValue(),'23.35');assert.equal(await page.evaluate(()=>document.body.classList.contains('works-volume')),true);
   await page.reload();await page.locator('#resumeWork').click();await page.waitForFunction(()=>!document.body.classList.contains('works-busy'));assert.equal(await page.locator('#signHeight').inputValue(),'23.35');
   await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'.checks/sign-basics-mobile.png',fullPage:true});await page.setViewportSize({width:1400,height:1000});
+  // Reinterpret older OCR drafts, surface real alternatives, and update QR status
+  // without replacing the user's edits during the background lookup.
+  job.previewFields=undefined;job.input.ocrText='Dirección: AVIADOR WERNICKE 2236\nDirección: AVIADOR WERNICKE 2238\nAltura: 23.35 m';job.signExtraction={fields:{}};
+  job.input.detectedQR=[urlA];job.input.qrURL=urlA;job.status='queued';
+  await page.locator('#resumeWork').click();await page.waitForFunction(()=>!document.body.classList.contains('works-busy'));
+  assert.equal(await page.locator('#signAddressChoices button').count(),2);assert.match(await page.locator('#signAddressHint').innerText(),/direcciones diferentes/);assert.match(await page.locator('#signQRNotice').innerText(),/pendiente/);
+  await page.locator('#signAddressChoices button').first().click();assert.equal(await page.locator('#signAddress').inputValue(),'AVIADOR WERNICKE 2236');
+  await page.locator('#signAddress').fill('Corrección manual 123');job.status='review-required';job.qrStatus='unavailable';
+  await page.waitForFunction(()=>document.getElementById('signQRNotice').textContent.includes('No pudimos consultar'),{},{timeout:15000});assert.equal(await page.locator('#signAddress').inputValue(),'Corrección manual 123');
+  await page.screenshot({path:'.checks/sign-qr-unavailable.png',fullPage:true});
   job.extracted={...extractNormalized(source,urlA),verified:true};job.issues=[];job.status='extracted';job.stage='Datos extraídos de fuente pública';
   await page.locator('#resumeWork').click();await page.locator('#verifiedWorkflow > summary').click();await page.waitForFunction(()=>!document.body.classList.contains('works-busy'));await page.locator('#locateWork').click();await page.waitForFunction(()=>Urban.selections.length===1);assert(await page.locator('#view3d').isEnabled());await page.locator('#view3d').click();assert.equal(await page.evaluate(()=>Legacy.state.flat),false);assert.equal(await page.locator('#affectedCount').innerText(),'0');
   await page.locator('#correctWorkLocation').click();assert(await page.locator('#address').isVisible());await page.locator('#confirmWorkLocation').click();await page.waitForFunction(()=>!document.body.classList.contains('works-busy'));assert.match(await page.locator('#worksStatus').innerText(),/aproximada/);assert(await page.locator('#publishWork').isDisabled());

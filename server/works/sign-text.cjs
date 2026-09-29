@@ -4,7 +4,7 @@ const clean=value=>value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLower
 const rules=[
  ['municipality','Municipio',/^(?:municipalidad(?: de)?|municipio|partido)\s*[:\-]?\s*(.+)$/i],
  ['locality','Localidad',/^(?:localidad|localizacion)\s*[:\-]\s*(.+)$/i],
- ['address','Dirección',/^(?:direccion(?: de (?:la )?obra)?|domicilio(?: de (?:la )?obra)?|ubicacion(?: de (?:la )?obra)?|obra sita en)\s*[:\-]?\s*(.+)$/i],
+ ['address','Dirección',/^(?:d[i1l]rec\s*c[i1l][o0]n(?: de (?:la )?obra)?|domicilio(?: de (?:la )?obra)?|ubicacion(?: de (?:la )?obra)?|obra sita en)\s*[:\-]?\s*(.+)$/i],
  ['permit','Permiso',/^(?:permiso(?: de (?:la )?obra)?|licencia de obra)\s*(?:numero|n[°ºo.]?)?\s*[:\-]?\s*(.+)$/i],
  ['expediente','Expediente',/^(?:expediente|expte\.?)\s*(?:numero|n[°ºo.]?)?\s*[:\-]?\s*(.+)$/i],
  ['height','Altura (m)',/^altura(?: (?:total|del edificio|de obra))?\s*[:\-]?\s*(\d+(?:[.,]\d+)?)\s*(?:m|mts\.?|metros)\.?$/i,'number'],
@@ -36,6 +36,9 @@ function number(value){
  if(!/^\d+(?:[.,]\d+)?$/.test(value))return null;
  return Number(value.replace(',','.'));
 }
+const addressKey=value=>clean(value).replace(/\s+/g,' ').replace(/[.,;]+$/,'').trim();
+const addressHeading=/^(?:d[i1l]rec\s*c[i1l][o0]n(?: de (?:la )?obra)?|domicilio(?: de (?:la )?obra)?|ubicacion(?: de (?:la )?obra)?|obra sita en)\s*[:\-]?\s*$/i;
+const otherHeading=/^(?:tipo|destino|expediente|permiso|propietario|profesional|altura|pisos|fos|fot|dn|hmax|permitido|proyectado|municipalidad|general|obras privadas|tecnica)\b/i;
 function extractSignText(raw,now=new Date().toISOString(),edited=false){
  const origin=edited?'user-transcribed':'sign-ocr';
  const input=typeof raw==='string'?raw.slice(0,16000):'',fields={},candidates={},issues=[],lines=input.split(/\r?\n|\s*\|\s*|\t+/).map(x=>x.trim()).filter(Boolean);
@@ -49,10 +52,11 @@ function extractSignText(raw,now=new Date().toISOString(),edited=false){
   // Preserve accents/case in values; matching uses an accent-normalized copy.
   const line=lines[i];
   // Discard finder-pattern noise before a known label, retaining original evidence.
-  const start=clean(line).search(/\b(?:direccion|domicilio|ubicacion|expediente|expte|destino|tipo|altura|pisos|superficie|sup\.|profesional|municipalidad|municipio|partido|localidad|permiso|proyectista|director|constructora)\b/);
+  const start=clean(line).search(/\b(?:d[i1l]rec\s*c[i1l][o0]n|domicilio|ubicacion|expediente|expte|destino|tipo|altura|pisos|superficie|sup\.|profesional|municipalidad|municipio|partido|localidad|permiso|proyectista|director|constructora)\b/);
   const readable=start>0?line.slice(start):line,normalized=clean(readable);
   for(const [key,label,pattern,kind]of rules){
    let match=pattern.exec(normalized),evidence=readable;
+   if(key==='address'&&addressHeading.test(normalized)&&lines[i+1]&&!otherHeading.test(clean(lines[i+1]))){evidence=readable+' '+lines[i+1];match=pattern.exec(clean(evidence));}
    if((!match||/^[:\-\s]*$/.test(match[1]))&&/[:\-]$/.test(readable)&&lines[i+1]){evidence=readable+' '+lines[i+1];match=pattern.exec(clean(evidence));}
    if(!match)continue;
    let value=evidence.slice(match.index+match[0].lastIndexOf(match[1]),match.index+match[0].lastIndexOf(match[1])+match[1].length).trim();
@@ -61,7 +65,14 @@ function extractSignText(raw,now=new Date().toISOString(),edited=false){
     value=number(match[1]);if(value===null||!Number.isFinite(value)||(key==='height'&&(value<=0||value>300))){issues.push(label+': valor ambiguo o fuera de rango; revisá el texto.');continue;}
    }
    if(key==='municipality'){const m=municipalities.find(m=>clean(m.name)===clean(value));if(m)value=m.id;else continue;}
-   if(key==='address')value=value.replace(/\s+EXT\b.*$/i,'').trim();
+   if(key==='address'){
+    value=value.replace(/\s+EXT\b.*$/i,'').replace(/\s+(?:PERMITIDO|PROYECTADO|FOS|FOT|DN|HMAX)\b.*$/i,'').trim();
+    if(otherHeading.test(clean(value)))continue;
+    const next=lines[i+(addressHeading.test(normalized)?2:1)];
+    if(!/\d/.test(value)&&next&&/^\d{1,6}$/.test(next)){value+=' '+next;evidence+=' '+next;}
+    // A decimal sequence following a house number belongs to the adjacent table.
+    value=value.replace(/^(.+?\b\d{1,6})\s+(?:\d+[.,]\d+\s+)+.*$/,'$1').replace(/\s+/g,' ').trim();
+   }
    if(key==='destination'&&lines[i+1]){const continuation=lines[i+1].match(/\bCOMERCIAL(?:ES)?(?:\s+Y\s+COCHERAS)?\b|\bY\s+COCHERAS\b/i);if(continuation){value+=' '+continuation[0];evidence+=' '+lines[i+1];}}
    const entry={value,origin,source:'photo',queriedAt:now,evidence,label,verified:false};
    (candidates[key]||=[]).push(entry);
@@ -82,6 +93,14 @@ function extractSignText(raw,now=new Date().toISOString(),edited=false){
   }
  }
  for(const [key,entries]of Object.entries(candidates)){
+  if(key==='address'){
+   // Multiple OCR passes often differ only in case, spacing or a cropped suffix.
+   // Keep a complete reading only when every other reading is its exact prefix.
+   const unique=[...new Map(entries.map(e=>[addressKey(e.value),e])).values()];
+   const complete=unique.filter(e=>/\b\d{1,6}\b/.test(e.value));
+   if(unique.length===1){fields[key]=unique[0];continue;}
+   if(complete.length===1&&unique.every(e=>e===complete[0]||(!/\d/.test(e.value)&&addressKey(complete[0].value).startsWith(addressKey(e.value)+' ')))){fields[key]=complete[0];continue;}
+  }
   const values=[...new Set(entries.map(e=>String(e.value)))];
   if(values.length===1)fields[key]=entries[0];else issues.push(labels[key]+': se leyeron valores distintos ('+values.join(' / ')+'). Revisalos en la foto.');
  }

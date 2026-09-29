@@ -123,5 +123,5 @@ export async function initWorks(map){
   try{config=await api('config');await refresh();}catch(e){showStatus(e.message);}
   const workId=new URL(location.href).searchParams.get('obra');if(workId)await openWork(workId);
   // Poll only when an owned contribution is visible, and never while another mutation runs.
-  setInterval(()=>{if(!busy&&job&&['queued','processing'].includes(job.status)&&!document.hidden)api('job',key).then(next=>{job=next;$('verifiedWorkflow').hidden=!job.extracted?.verified;}).catch(e=>showStatus(e.message));},7000);
+  setInterval(()=>{if(!busy&&job&&['queued','processing'].includes(job.status)&&!document.hidden){const requestedId=key?.id;api('job',key).then(next=>{if(busy||key?.id!==requestedId)return;job=next;flow.updateStatus(job);$('verifiedWorkflow').hidden=!job.extracted?.verified;}).catch(e=>showStatus(e.message));}},7000);
 }

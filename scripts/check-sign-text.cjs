@@ -13,7 +13,7 @@ const {extractSignText}=require('../server/works/sign-text.cjs');
   await context.route('**/api/works?**',async route=>{const action=new URL(route.request().url()).searchParams.get('action');let body;try{body=route.request().postDataJSON();}catch{}const send=json=>route.fulfill({json});
    if(action==='config')return send({registry:true,photos:true});if(action==='list')return send({enabled:true,works:[],nextOffset:null});
    if(action==='create'){creates++;job={id:body.id,input:body,revision:0,status:'pending',extracted:{},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};return send(job);}
-   if(action==='process'){assert.equal(body.textOnly,true);job.input.ocrText=body.ocrText;job.signExtraction=extractSignText(body.ocrText);job.status='review-required';job.revision++;return send(job);}
+   if(action==='process'){assert.equal(body.textOnly,true);job.input.ocrText=body.ocrText;job.input.detectedQR=body.detectedQR;job.signExtraction=extractSignText(body.ocrText);job.status='review-required';job.revision++;return send(job);}
    if(action==='job')return send({...job,publicationIssues:['Datos sin verificar.'],issues:[]});
    return route.fulfill({status:400,json:{error:'Unexpected request '+action}});
   });
@@ -27,7 +27,9 @@ const {extractSignText}=require('../server/works/sign-text.cjs');
   fs.writeFileSync('.checks/synthetic-ocr.txt',job?.input?.ocrText||'');
   assert.equal(creates,1);assert(await page.locator('#workContribution').isVisible());assert.equal(await page.locator('#signAddress').inputValue(),'PRUEBA 123');assert.equal(await page.locator('#signHeight').inputValue(),'27');assert.equal(await page.locator('#signMunicipality').inputValue(),'tres-de-febrero');assert(await page.locator('#verifiedWorkflow').isHidden());
   await page.screenshot({path:'.checks/sign-ocr-review.png',fullPage:true});
+  assert.match(await page.locator('#signQRNotice').innerText(),/No se pudo leer el QR/);
   await page.reload();await page.locator('#resumeWork').click();await page.waitForFunction(()=>!document.body.classList.contains('works-busy'));assert.equal(await page.locator('#signHeight').inputValue(),'27');
+  assert.match(await page.locator('#signQRNotice').innerText(),/No se pudo leer el QR/);
   await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'.checks/sign-ocr-mobile.png',fullPage:true});assert.deepEqual(errors,[]);
   fs.writeFileSync('.checks/sign-ocr-results.json',JSON.stringify({passed:true,ocr:'Real local Spanish OCR on synthetic sign without QR',storage:'Mock API',checks:['invalid photo','one processing button','automatic OCR fallback','basic fields','double click','private save','reload recovery','no publication','mobile layout'],errors},null,2));console.log('PASS: OCR real sobre cartel sintético, flujo simple, guardado privado y recuperación. API simulada.');
  }finally{await browser.close();}

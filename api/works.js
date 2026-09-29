@@ -66,7 +66,7 @@ async function handler(req,res){
       if(job.status==='processing')return res.status(200).json(store.privateView(job));
       if(job.status==='queued'){await store.saveJob(job,body.revision);await store.enqueue(id);return res.status(200).json(store.privateView(job));}
       if(body.qrURL)job.input.qrURL=safeURL(body.qrURL);
-      job.status='queued';job.stage='Esperando lectura del permiso';job.issues=[];job.extracted={};job.location=null;
+      job.status='queued';job.qrStatus='queued';job.stage='Esperando lectura del permiso';job.issues=[];job.extracted={};job.location=null;
       await store.saveJob(job,body.revision);await store.enqueue(id);
       return res.status(202).json(store.privateView(job));
     }

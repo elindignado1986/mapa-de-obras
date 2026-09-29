@@ -1,5 +1,6 @@
 import {CONFIG} from '../../config/app.js';
 import {extractSignText} from '../../server/works/sign-text.cjs';
+import {qrNotice} from '../../server/works/qr-status.cjs';
 import {preparePhoto,readQR,readText} from './photo.js';
 
 const $=id=>document.getElementById(id);
@@ -17,9 +18,9 @@ export function initSignFlow({map,save,savePreview,onFresh,status,attempt}){
     <p id="uploadStatus" role="status" aria-live="polite"></p>
     <button id="sendWork" class="primary" disabled>Procesar</button>
   </dialog>`);
-  $('basicWorkFields').innerHTML=`<h2>Revisá los datos del cartel</h2><p>Corregí lo que haga falta y mirá el volumen en 3D.</p>
+  $('basicWorkFields').innerHTML=`<h2>Revisá los datos del cartel</h2><p>Corregí lo que haga falta y mirá el volumen en 3D.</p><p id="signQRNotice" class="volume-note" role="status" aria-live="polite" hidden></p>
     <form id="signBasics"><div class="sign-basics">
-      <label>Dirección<input id="signAddress" name="address" autocomplete="street-address" maxlength="250" required placeholder="Calle y número"></label>
+      <div><label>Dirección<input id="signAddress" name="address" autocomplete="street-address" maxlength="250" required placeholder="Calle y número" aria-describedby="signAddressHint"><small id="signAddressHint"></small></label><div id="signAddressChoices" class="parcel-actions"></div></div>
       <label>Municipio<select id="signMunicipality" required><option value="">Elegí el municipio</option></select></label>
       <label>Altura del proyecto (m)<input id="signHeight" name="height" type="number" inputmode="decimal" min="0.1" max="300" step="any" required placeholder="Completá la altura"><small id="signHeightHint"></small></label>
       <label>Tipo de vivienda / destino<input id="signDestination" name="destination" maxlength="250" placeholder="Si figura en el cartel"></label>
@@ -51,19 +52,27 @@ export function initSignFlow({map,save,savePreview,onFresh,status,attempt}){
       uploadStatus('Procesando imagen…');
       try{raw=await readText(photo.canvas,uploadStatus);}catch{uploadStatus('No se pudo completar la lectura. Podés completar los datos básicos.');}
       try{codes=await readQR(photo.canvas);}catch{/* Text preview does not depend on QR. */}
-      job={signExtraction:extractSignText(raw),input:{ocrText:raw},extracted:{}};
+      job={signExtraction:extractSignText(raw),input:{ocrText:raw,detectedQR:codes},extracted:{}};
       render(job);$('workUpload').close();$('basicWorkFields').scrollIntoView({behavior:'smooth',block:'start'});
       $('signSaveStatus').textContent='Guardando aporte privado…';
-      try{job=await save({photo,raw,codes,parent});savedPhoto=true;$('signSaveStatus').textContent='Aporte privado guardado. Todavía no publicado.';}
+      try{job=await save({photo,raw,codes,parent});savedPhoto=true;updateStatus(job);$('signSaveStatus').textContent='Aporte privado guardado. Todavía no publicado.';}
       catch(e){$('signSaveStatus').textContent='Podés ver el volumen en esta sesión. No se completó el guardado: '+e.message;}
     }finally{$('sendWork').disabled=false;}
   });
   function render(next){
     job=next;savedPhoto=Boolean(next.photo);selectedAddress='';manual=false;
-    const sign=next.signExtraction||extractSignText(next.input?.ocrText||''),official=next.extracted?.fields||{},fields={...sign.fields,...official},draft=next.previewFields||{};
+    const raw=next.input?.ocrText||next.signExtraction?.rawText;
+    const sign=raw?extractSignText(raw,undefined,next.input?.ocrEdited):next.signExtraction||extractSignText(''),official=next.extracted?.fields||{},fields={...sign.fields,...official},draft=next.previewFields||{};
     $('workContribution').hidden=false;$('workDetails').hidden=true;
     $('verifiedWorkflow').hidden=!next.extracted?.verified;
     $('signAddress').value=draft.address??fields.address?.value??'';
+    $('signAddressChoices').replaceChildren();
+    const addresses=[...new Set((sign.candidates?.address||[]).map(e=>e.value))];
+    $('signAddressHint').textContent=$('signAddress').value?'Revisá calle y número en la foto.':addresses.length?'La lectura dio direcciones diferentes. Elegí la correcta o escribila.':'No se pudo reconocer la dirección. Escribí la calle y el número que figuran en el cartel.';
+    if(!$('signAddress').value)for(const value of addresses.slice(0,6)){
+      const button=node('button',value);button.type='button';button.onclick=()=>{$('signAddress').value=value;$('signAddressHint').textContent='Dirección elegida por vos. Revisá calle y número.';$('signAddressChoices').replaceChildren();};$('signAddressChoices').append(button);
+    }
+    updateStatus(next);
     $('signMunicipality').value=draft.municipality??fields.municipality?.value??'';
     $('signHeight').value=draft.height??fields.height?.value??fields.projectHeight?.value??'';
     $('signDestination').value=draft.destination??fields.destination?.value??fields.type?.value??'';
@@ -73,6 +82,7 @@ export function initSignFlow({map,save,savePreview,onFresh,status,attempt}){
     $('previewChoices').replaceChildren();$('correctSignLocation').hidden=true;$('previewStatus').textContent='';
     $('signSaveStatus').textContent=next.id?(savedPhoto?'Aporte privado guardado. Todavía no publicado.':'Datos privados guardados. Falta guardar la imagen.'):'';
   }
+  function updateStatus(next){const message=qrNotice(next);$('signQRNotice').textContent=message;$('signQRNotice').hidden=!message;}
   function basics(){return {address:$('signAddress').value.trim(),municipality:$('signMunicipality').value,height:Number($('signHeight').value),destination:$('signDestination').value.trim()};}
   $('signHeight').oninput=()=>{$('signHeightHint').textContent=$('signHeight').value?'Altura indicada por vos para esta vista previa.':'Completá la altura en metros para armar el volumen.';};
   const fingerprint=value=>value.municipality+'|'+value.address;
@@ -106,11 +116,11 @@ export function initSignFlow({map,save,savePreview,onFresh,status,attempt}){
     const exact=results.filter(r=>r.exact);
     if(exact.length===1){await pick(exact[0],value);return;}
     manual=true;selectedAddress=fingerprint(value);$('correctSignLocation').hidden=false;
-    previewStatus(results.length?'Elegí la ubicación. Las coincidencias aproximadas necesitan que selecciones la parcela.':'No se encontró esa dirección. Corregila o tocá la parcela en el mapa y pulsá Ver en mapa.');
+    previewStatus(exact.length?'Hay más de una coincidencia para esa dirección. Elegí la correcta.':results.length?'El buscador no tiene localizada la numeración de '+value.address+'. Podés acercarte a la calle y marcar la parcela; conservamos la dirección del cartel.':'El buscador no encontró '+value.address+'. Esto no significa que la dirección no exista. Marcá la parcela en el mapa para continuar.');
     for(const result of exact.length?exact:results){const button=node('button',result.label);button.type='button';button.onclick=attempt(async()=>{
       if(result.exact)return pick(result,value);
-      await map.locate(result.point);map.clearProposal();map.confirm(true);mapIntoView();
-      previewStatus('Ubicación aproximada: tocá la parcela correcta y pulsá Ver en mapa.');
+      await map.reference(result);map.confirm(true);mapIntoView();
+      previewStatus('Referencia de la calle; todavía no ubicamos '+value.address+'. Acercá el mapa, tocá la parcela correcta y pulsá Ver en mapa.');
     });$('previewChoices').append(button);}
     if(!results.length)mapIntoView();
   })().catch(()=>{});};
@@ -118,5 +128,5 @@ export function initSignFlow({map,save,savePreview,onFresh,status,attempt}){
     manual=true;selectedAddress=fingerprint(basics());map.confirm(true);map.clearProposal();
     previewStatus('Tocá la parcela correcta y pulsá Ver en mapa para reconstruir el volumen.');mapIntoView();
   };
-  return {open,render};
+  return {open,render,updateStatus};
 }

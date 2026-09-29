@@ -9,12 +9,12 @@ async function tick(){
   if(!id)return false;
   let job=await get('job',id);if(!job||!['queued','processing'].includes(job.status)){await redis(['ZREM',PREFIX+'queue',id]);return true;}
   let revision=job.revision;
-  job.status='processing';job.stage='Consultando permiso';await saveJob(job,revision);revision=job.revision;
+  job.status='processing';job.qrStatus='checking';job.stage='Consultando permiso';await saveJob(job,revision);revision=job.revision;
   try{
     if(!job.input.qrURL)throw Error('No se pudo leer un QR. Reemplazá la foto o pegá el enlace del permiso.');
-    job.extracted=await processPermit(job.input.qrURL);job.duplicateId=await findDuplicate(job);
+    job.extracted=await processPermit(job.input.qrURL);job.qrStatus='available';job.duplicateId=await findDuplicate(job);
     job.status='review-required';job.stage='Datos extraídos; requieren revisión';job.issues=job.extracted.issues;
-  }catch(e){job.signExtraction=extractSignText(job.input.ocrText||'',undefined,job.input.ocrEdited);const hasText=Object.keys(job.signExtraction.fields).length>0;job.status=hasText?'review-required':'pending';job.stage=hasText?'Permiso inaccesible; texto del cartel disponible':'Aporte pendiente';job.issues=[e.message,...job.signExtraction.issues];}
+  }catch(e){job.qrStatus='unavailable';job.signExtraction=extractSignText(job.input.ocrText||'',undefined,job.input.ocrEdited);const hasText=Object.keys(job.signExtraction.fields).length>0;job.status=hasText?'review-required':'pending';job.stage=hasText?'Permiso inaccesible; texto del cartel disponible':'Aporte pendiente';job.issues=[e.message,...job.signExtraction.issues];}
   await saveJob(job,revision);await redis(['ZREM',PREFIX+'queue',id]);return true;
 }
 if(require.main===module)(async()=>{do{try{const worked=await tick();if(process.argv.includes('--once'))break;if(!worked)await new Promise(r=>setTimeout(r,5000));}catch(e){console.error('Worker:',e.message);if(process.argv.includes('--once')){process.exitCode=1;break;}await new Promise(r=>setTimeout(r,10000));}}while(true);})();
