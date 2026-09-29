@@ -48,6 +48,16 @@ Sin `.env`, `npm.cmd run dev` permite usar el Explorador, leer fotos/QR/OCR y us
 
 ## Formatos municipales y revisión
 
+### Alternativa cuando el QR no funciona
+
+«Leer cartel» lee el texto por defecto y activa la alternativa cuando no reconoce un QR HTTPS. El botón «El QR no funciona: leer el texto del cartel» permite continuar si el código es legible pero su enlace está caído, vencido o inaccesible. El aportante puede revisar y corregir el texto reconocido y actualizar los campos antes de enviar. También puede retomar una foto privada guardada para leerla nuevamente.
+
+La extracción local y del servidor (`server/works/sign-text.cjs`) busca rótulos de municipio, localidad, dirección, permiso, expediente, altura explícita en metros, pisos, superficies con unidades, responsables y fechas. Conserva evidencia textual por campo, el texto completo y advertencias por números ambiguos o contradictorios. FOT/FOS/densidad solo se clasifican si el cartel distingue proyecto y normativa. Nomenclatura catastral se conserva como texto a revisar, sin tratarla automáticamente como un identificador parcelario canónico. El texto de contacto y otros datos personales no se convierten en campos de la ficha.
+
+Los resultados se guardan en `signExtraction`, separados de `extracted` (permiso). `sign-ocr` identifica lectura automática y `user-transcribed` identifica texto corregido por el aportante. Ninguno habilita publicación automática ni sobrescribe datos documentados. La dirección propuesta sirve para asistir la confirmación manual, no para verificar el inmueble. No se convierte cantidad de pisos a altura oficial.
+
+El modo de solo texto guarda inmediatamente un aporte `review-required` sin encolarlo ni requerir worker: la lectura OCR se ejecuta en el navegador y el servidor vuelve a extraer los campos del texto recibido. Si se consulta el QR y el worker falla, conserva la alternativa textual. Los formatos sin rótulos reconocibles permanecen en el texto para revisión manual; no se garantiza extraer todos los carteles. Pruebas adicionales: `node scripts/check-sign-text.cjs` ejecuta OCR real sobre un cartel sintético sin QR, corrección, guardado mediante API simulada, recuperación y vista móvil. Aún falta validación con la foto real del usuario.
+
 **Municipios verificados con permisos reales: ninguno.** No se recibieron fotos ni enlaces municipales de muestra durante esta implementación. No se afirma compatibilidad automática con ningún municipio. Los cinco municipios/localidades del simulador continúan habilitados como antes.
 
 `server/works/permit.cjs` contiene el límite de confianza y un adaptador de contrato JSON `mapa-permiso-v1`. No es un formato municipal real ni una integración productiva simulada. Permite validar el modelo de datos y conectar futuros adaptadores. Las respuestas HTML/PDF, sitios privados, formatos desconocidos, errores y contradicciones quedan pendientes. No se extraen valores mediante heurísticas que puedan confundir normativa con proyecto.

@@ -1,4 +1,5 @@
 const store=require('../server/works/store.cjs');
+const {extractSignText}=require('../server/works/sign-text.cjs');
 const {safeURL}=require('../server/works/permit.cjs');
 const {eligibility,findDuplicate,findCandidates,publish}=require('../server/works/publication.cjs');
 const {resolveParcels,proposeParcels}=require('../server/works/parcels.cjs');
@@ -36,7 +37,7 @@ async function handler(req,res){
     if(action==='create'){
       const token=(req.headers.authorization||'').replace(/^Bearer /,'');
       if(!validId(body.id)||!/^[a-f0-9]{64}$/.test(token))throw Object.assign(Error('Clave de recuperación inválida.'),{status:400});
-      const qrURL=body.qrURL?safeURL(body.qrURL):null;
+      const qrURL=!body.textOnly&&body.qrURL?safeURL(body.qrURL):null;
       const job=await store.createJob(body.id,token,{qrURL,ocrText:typeof body.ocrText==='string'?body.ocrText.slice(0,16000):'',ocrOrigin:'unverified-browser',parentWork:validId(body.parentWork)?body.parentWork:null});
       return res.status(200).json(store.privateView(job));
     }
@@ -46,8 +47,17 @@ async function handler(req,res){
     if(job.status==='published')throw Object.assign(Error('La obra ya es pública. Creá un aporte nuevo para conservar su historial.'),{status:409});
     if(body.revision!==job.revision)throw Object.assign(Error('El aporte cambió. Actualizá su estado.'),{status:409});
     if(action==='process'){
+      if(typeof body.ocrText==='string'){job.input.ocrText=body.ocrText.slice(0,16000);job.input.ocrEdited=body.ocrEdited===true;}
+      job.signExtraction=extractSignText(job.input.ocrText||'',undefined,job.input.ocrEdited);
+      if(body.textOnly===true||(!body.qrURL&&!job.input.qrURL)){
+        job.status='review-required';job.stage='Texto del cartel leído; requiere revisión';
+        job.issues=['Datos obtenidos del texto del cartel, sin verificar el permiso.',...job.signExtraction.issues];
+        if(!Object.keys(job.signExtraction.fields).length)job.issues.push('No se reconocieron campos con suficiente claridad. Revisá el texto o reemplazá la foto.');
+        await store.saveJob(job,body.revision);
+        return res.status(200).json({...store.privateView(job),publicationIssues:eligibility(job)});
+      }
       if(job.status==='processing')return res.status(200).json(store.privateView(job));
-      if(job.status==='queued'){await store.enqueue(id);return res.status(200).json(store.privateView(job));}
+      if(job.status==='queued'){await store.saveJob(job,body.revision);await store.enqueue(id);return res.status(200).json(store.privateView(job));}
       if(body.qrURL)job.input.qrURL=safeURL(body.qrURL);
       job.status='queued';job.stage='Esperando lectura del permiso';job.issues=[];job.extracted={};job.location=null;
       await store.saveJob(job,body.revision);await store.enqueue(id);

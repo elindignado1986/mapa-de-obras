@@ -1,3 +1,4 @@
+import {extractSignText} from '../../server/works/sign-text.cjs';
 import {CONFIG} from '../../config/app.js';
 import {preparePhoto,readQR,readText} from './photo.js';
 const $=id=>document.getElementById(id);
@@ -17,6 +18,7 @@ function newRecovery(){const bytes=crypto.getRandomValues(new Uint8Array(32));re
 
 export async function initWorks(map){
   let rows=[],photo=null,ocrText='',job=null,key=recovery(),config={},parentWork=null,busy=false,photoStored=false,loadVersion=0;
+  let ocrAttempted=false,ocrEdited=false;
   const showStatus=message=>$('worksStatus').textContent=message;
   const attempt=fn=>async()=>{if(busy)return;busy=true;document.body.classList.add('works-busy');try{await fn();}catch(e){showStatus(e.message);if($('workUpload').open)$('uploadStatus').textContent=e.message;}finally{busy=false;document.body.classList.remove('works-busy');}};
   document.querySelector('.urban-nav').insertAdjacentHTML('afterbegin','<button id="worksMode" class="primary">Explorador de Obras</button>');
@@ -24,7 +26,7 @@ export async function initWorks(map){
   $('urbanMode').onclick=()=>{map.mode('simulator');history.replaceState(null,'','/#simulador');$('worksMode').classList.remove('active');};
   $('worksMode').onclick=()=>{map.mode('explorer');history.replaceState(null,'','/');$('worksMode').classList.add('active');};
   document.querySelector('.workspace').insertAdjacentHTML('afterbegin',`<section id="worksHome" class="works-home"><div class="works-heading"><div><span class="eyebrow">INFORMACIÓN PÚBLICA · APORTE COMUNITARIO</span><h2>Explorador de Obras</h2><p>Conocé las obras de tu barrio y explorá sus sombras.</p></div><button id="addWork" class="primary">Subir foto de cartel de obra</button></div><p class="works-explanation">Subí una foto del cartel de obra. La aplicación leerá el QR y la información disponible del permiso para identificar la obra y generar su volumen. Antes de publicarla, te pediremos confirmar la ubicación.</p><div class="works-filters"><label>Municipio / localidad<select id="worksMunicipality"></select></label><label>Localidad<input id="worksLocality" type="search" placeholder="Todas las localidades"></label><label>Estado según el permiso<select id="worksState"><option value="">Todos los estados</option></select></label><button id="refreshWorks">Actualizar obras</button><button id="resumeWork" hidden>Retomar aporte pendiente</button></div><p id="worksStatus" role="status" aria-live="polite"></p><div id="worksList" class="works-list"></div><button id="moreWorks" hidden>Cargar más obras</button></section><section id="workContribution" class="work-card" hidden><span class="eyebrow">APORTE · TODAVÍA NO PUBLICADO</span><h2 id="jobHeading">Aporte pendiente</h2><p id="jobStatus" role="status"></p><div id="jobIssues"></div><div class="parcel-actions"><button id="refreshJob">Actualizar estado</button><button id="replacePhoto">Reemplazar foto / enlace</button><button id="locateWork">Confirmar ubicación</button><button id="openDuplicate" hidden>Ver obra existente</button></div><div id="locationQuestion" hidden><h3>¿Esta es la parcela de la obra?</h3><p id="interpretedAddress"></p><p>Revisá el resaltado en el mapa. La búsqueda de una dirección es solo una propuesta. Podés ver el terreno en planta o 3D y elegir varias parcelas contiguas.</p><p id="locationCount" role="status"></p><button id="confirmWorkLocation" class="primary" disabled>Sí, es correcta</button><button id="correctWorkLocation">Corregir ubicación</button></div><div id="jobFields"></div><div id="publishPanel"><p>Confirmar la parcela no verifica todos los datos del permiso.</p><label class="consent"><input id="publicConsent" type="checkbox"> Entiendo que la ficha, ubicación y foto revisada quedarán visibles públicamente.</label><button id="publishWork" class="primary" disabled>Publicar obra</button><p id="publicationIssues"></p></div></section><section id="workDetails" class="work-card" hidden></section>`);
-  document.body.insertAdjacentHTML('beforeend',`<dialog id="workUpload" class="work-upload"><div class="dialog-head"><h2>Incorporar una obra</h2><button id="cancelUpload" aria-label="Cerrar">×</button></div><p>Fotografiá el cartel completo y el QR con buena luz. Revisá la foto antes de enviarla.</p><div class="parcel-actions"><button id="openWorkCamera">Abrir cámara</button><button id="pickWorkFile">Subir archivo</button></div><input id="workFile" type="file" accept="image/jpeg,image/png,image/webp" hidden><input id="workCameraFile" type="file" accept="image/*" capture="environment" hidden><img id="workPhotoPreview" alt="Foto del cartel seleccionada" hidden><p id="photoLimits" class="micro">JPG, PNG o WebP · hasta 12 MB y 24 megapíxeles. La foto se procesa antes de guardarse.</p><label class="consent"><input id="useOCR" type="checkbox"> Leer también el texto del cartel mediante OCR en este dispositivo</label><button id="readWorkPhoto" disabled>Leer cartel</button><div id="qrChoices"></div><label for="qrURL">Pegar enlace del QR</label><input id="qrURL" type="url" placeholder="https://…"><p class="micro">El OCR puede equivocarse. Sus resultados no se publican como datos verificados.</p><p id="uploadStatus" role="status" aria-live="polite"></p><div class="parcel-actions"><button id="sendWork" class="primary">Enviar aporte para procesar</button><button id="cancelWork">Cancelar</button></div></dialog>`);
+  document.body.insertAdjacentHTML('beforeend',`<dialog id="workUpload" class="work-upload"><div class="dialog-head"><h2>Incorporar una obra</h2><button id="cancelUpload" aria-label="Cerrar">×</button></div><p>Fotografiá el cartel completo y el QR con buena luz. Revisá la foto antes de enviarla.</p><div class="parcel-actions"><button id="openWorkCamera">Abrir cámara</button><button id="pickWorkFile">Subir archivo</button></div><input id="workFile" type="file" accept="image/jpeg,image/png,image/webp" hidden><input id="workCameraFile" type="file" accept="image/*" capture="environment" hidden><img id="workPhotoPreview" alt="Foto del cartel seleccionada" hidden><p id="photoLimits" class="micro">JPG, PNG o WebP · hasta 12 MB y 24 megapíxeles. La foto se procesa antes de guardarse.</p><label class="consent"><input id="useOCR" type="checkbox" checked> Leer también el texto del cartel mediante OCR en este dispositivo</label><button id="readWorkPhoto" disabled>Leer cartel</button><button id="readWithoutQR" disabled>El QR no funciona: leer el texto del cartel</button><label class="consent"><input id="textOnly" type="checkbox"> Continuar con el texto del cartel sin consultar el QR</label><div id="signReview" hidden><h3>Revisá la lectura del cartel</h3><p>Datos propuestos, sin verificar el permiso. Corregí el texto si alguna letra o número se leyó mal.</p><label for="signRawText">Texto reconocido (editable)</label><textarea id="signRawText" rows="7" maxlength="16000"></textarea><button id="extractSignFields">Actualizar datos desde el texto</button><div id="signCandidates"></div></div><div id="qrChoices"></div><label for="qrURL">Pegar enlace del QR</label><input id="qrURL" type="url" placeholder="https://…"><p class="micro">El OCR puede equivocarse. Sus resultados no se publican como datos verificados.</p><p id="uploadStatus" role="status" aria-live="polite"></p><div class="parcel-actions"><button id="sendWork" class="primary">Enviar aporte para procesar</button><button id="cancelWork">Cancelar</button></div></dialog>`);
   for(const m of CONFIG.municipalities.filter(m=>CONFIG.ENABLED_MUNICIPALITIES.includes(m.id))){const option=text('option',m.name);option.value=m.id;$('worksMunicipality').append(option);}
   $('worksMunicipality').value=map.location().municipality;
   const drafts=document.createElement('select');drafts.id='workDrafts';drafts.setAttribute('aria-label','Aportes guardados en el servidor');$('resumeWork').before(drafts);
@@ -63,9 +65,9 @@ export async function initWorks(map){
   $('worksLocality').oninput=filterRows;$('worksState').onchange=filterRows;
   function openUpload(parent=null,fresh=false){
     if(busy)return;
-    parentWork=parent;if(fresh){if(photoStored){if(photo)URL.revokeObjectURL(photo.url);photo=null;$('workPhotoPreview').hidden=true;$('readWorkPhoto').disabled=true;$('qrChoices').replaceChildren();$('qrURL').value='';ocrText='';}job=null;key=null;photoStored=false;}
+    parentWork=parent;if(fresh){if(photoStored){ocrAttempted=false;ocrEdited=false;$('signReview').hidden=true;$('signRawText').value='';$('textOnly').checked=false;$('readWithoutQR').disabled=true;if(photo)URL.revokeObjectURL(photo.url);photo=null;$('workPhotoPreview').hidden=true;$('readWorkPhoto').disabled=true;$('qrChoices').replaceChildren();$('qrURL').value='';ocrText='';}job=null;key=null;photoStored=false;}
     $('uploadStatus').textContent=config.registry?'La foto se guardará de forma privada hasta su revisión.':'El registro público necesita configuración. Podés revisar la foto y leer el QR, pero todavía no enviarla.';
-    if(job?.input?.qrURL)$('qrURL').value=job.input.qrURL;
+    if(job?.input?.qrURL)$('qrURL').value=job.input.qrURL;if(job?.input?.ocrText){$('signRawText').value=job.input.ocrText;ocrAttempted=true;ocrEdited=Boolean(job.input.ocrEdited);updateSignReview();}if(job?.photo&&!photo){$('readWithoutQR').disabled=false;}
     $('workUpload').showModal();
   }
   $('addWork').onclick=()=>openUpload(null,true);$('replacePhoto').onclick=()=>openUpload();
@@ -73,7 +75,7 @@ export async function initWorks(map){
   $('workUpload').addEventListener('cancel',e=>{if(busy)e.preventDefault();});
   $('pickWorkFile').onclick=()=>$('workFile').click();
   $('openWorkCamera').onclick=()=>{if(!isSecureContext){$('uploadStatus').textContent='La cámara necesita HTTPS. Podés usar Subir archivo.';return;}$('workCameraFile').click();$('uploadStatus').textContent='Si la cámara no está disponible o se rechaza el permiso, elegí Subir archivo.';};
-  async function chooseFile(file){const next=await preparePhoto(file);if(photo)URL.revokeObjectURL(photo.url);photo=next;photoStored=false;ocrText='';$('qrURL').value='';$('qrChoices').replaceChildren();$('workPhotoPreview').src=photo.url;$('workPhotoPreview').hidden=false;$('readWorkPhoto').disabled=false;$('uploadStatus').textContent='Foto lista para revisar. Podés leer el cartel, reemplazarla o cancelar antes de enviarla.';}
+  async function chooseFile(file){const next=await preparePhoto(file);if(photo)URL.revokeObjectURL(photo.url);photo=next;photoStored=false;ocrText='';ocrAttempted=false;ocrEdited=false;$('qrURL').value='';$('qrChoices').replaceChildren();$('workPhotoPreview').src=photo.url;$('workPhotoPreview').hidden=false;$('readWorkPhoto').disabled=false;$('readWithoutQR').disabled=false;$('signReview').hidden=true;$('signRawText').value='';$('textOnly').checked=false;$('uploadStatus').textContent='Foto lista para revisar. Podés leer el cartel, reemplazarla o cancelar antes de enviarla.';}
   for(const id of ['workFile','workCameraFile'])$(id).onchange=()=>{const f=$(id).files[0];$(id).value='';if(f)attempt(()=>chooseFile(f))();};
   $('readWorkPhoto').onclick=attempt(async()=>{
     $('uploadStatus').textContent='Leyendo cartel…';$('qrChoices').replaceChildren();const codes=await readQR(photo.canvas);
@@ -81,36 +83,53 @@ export async function initWorks(map){
     if(urls.length===1)$('qrURL').value=urls[0];
     else if(urls.length>1){$('qrURL').value='';$('qrChoices').append(text('p','Hay varios QR. Elegí el correspondiente al permiso de obra.'));for(const url of urls){const btn=text('button',url);btn.type='button';btn.onclick=()=>{$('qrURL').value=url;$('uploadStatus').textContent='Enlace elegido. Revisalo antes de enviar.';};$('qrChoices').append(btn);}}
     $('uploadStatus').textContent=urls.length?'QR leído. Revisá el enlace antes de enviar.':'No pudimos leer un QR de permiso HTTPS. Probá una foto más cercana o pegá el enlace del QR.';
-    if($('useOCR').checked){$('uploadStatus').textContent+=' Leyendo texto…';try{ocrText=await readText(photo.canvas);$('uploadStatus').textContent+=' Texto leído; se conservará como no verificado.';}catch{$('uploadStatus').textContent+=' El OCR no está disponible. Podés continuar con el QR; el texto no se completó.';}}
+    if($('useOCR').checked||!urls.length){if(!urls.length)$('textOnly').checked=true;await recognizeSign();}
   });
+  function renderSign(container,extraction){
+    container.replaceChildren();
+    container.append(text('p',extraction.origin==='user-transcribed'?'Texto corregido por el aportante · no verificado':'Lectura automática del cartel · datos propuestos, no verificados'));
+    for(const field of Object.values(extraction.fields||{})){const row=document.createElement('p');row.append(text('strong',field.label+': '),text('span',String(field.value)),text('small','Texto de origen: '+field.evidence));container.append(row);}
+    for(const issue of extraction.issues||[])container.append(text('p',issue,'volume-note'));
+    if(!Object.keys(extraction.fields||{}).length)container.append(text('p','No se reconocieron campos claros. Podés corregir el texto, reemplazar la foto o conservarlo para revisión.'));
+  }
+  function updateSignReview(){ocrText=$('signRawText').value.slice(0,16000);$('signReview').hidden=false;renderSign($('signCandidates'),extractSignText(ocrText,undefined,ocrEdited));}
+  $('signRawText').oninput=()=>{ocrEdited=true;};
+  async function recognizeSign(){
+    ocrAttempted=true;ocrEdited=false;
+    $('uploadStatus').textContent='Leyendo el texto visible del cartel…';
+    try{ocrText=await readText(photo.canvas);$('signRawText').value=ocrText;updateSignReview();$('uploadStatus').textContent='Lectura terminada. Revisá los datos propuestos y corregí el texto si hace falta. El permiso no está verificado.';}
+    catch{$('signReview').hidden=false;$('uploadStatus').textContent='No se pudo completar la lectura automática. Podés transcribir el texto visible o reemplazar la foto.';}
+  }
+  $('extractSignFields').onclick=updateSignReview;
+  $('readWithoutQR').onclick=attempt(async()=>{$('textOnly').checked=true;if(!photo&&job?.photo){const response=await fetch('/api/works?'+new URLSearchParams({action:'photo',id:key.id}),{headers:{Authorization:'Bearer '+key.token}});if(!response.ok)throw Error('No se pudo recuperar la foto. Podés subirla otra vez.');const blob=await response.blob();photo=await preparePhoto(blob);photoStored=true;$('workPhotoPreview').src=photo.url;$('workPhotoPreview').hidden=false;}if(!photo)throw Error('Elegí una foto del cartel.');await recognizeSign();});
   async function refreshJob(){if(!key)return;job=await api('job',key);renderJob();}
   function renderJob(){
     $('workContribution').hidden=false;$('workDetails').hidden=true;$('resumeWork').hidden=false;$('jobHeading').textContent=job.stage;$('jobStatus').textContent='Aporte '+job.id+' · guardado en el servidor · '+new Date(job.updatedAt).toLocaleString('es-AR');
     $('jobIssues').replaceChildren(...(job.issues||[]).map(x=>text('p',x)));
     if(job.candidateIds?.length){$('jobIssues').append(text('p','Otras obras coinciden por parcela o dirección. Es un indicio, no una identificación definitiva.'));for(const id of job.candidateIds){const btn=text('button','Revisar posible coincidencia');btn.onclick=()=>openWork(id);$('jobIssues').append(btn);}}
     const issues=job.publicationIssues||[];$('publicationIssues').textContent=issues.join(' ');$('publishWork').disabled=issues.length>0||!$('publicConsent').checked||job.status==='published';
-    const details=document.createElement('details');details.append(text('summary','Datos extraídos y fuentes'));const body=document.createElement('div');renderFields(body,job.extracted?.fields);details.append(body);$('jobFields').replaceChildren(details);
+    const details=document.createElement('details');details.append(text('summary','Datos extraídos y fuentes'));const body=document.createElement('div');renderFields(body,job.extracted?.fields);details.append(body);$('jobFields').replaceChildren(details);if(job.signExtraction){const sign=document.createElement('details');sign.open=true;sign.append(text('summary','Datos leídos del cartel (sin verificar)'));const content=document.createElement('div');renderSign(content,job.signExtraction);const raw=document.createElement('details');raw.append(text('summary','Ver texto conservado'),text('pre',job.signExtraction.rawText||''));sign.append(content,raw);$('jobFields').append(sign);}
     $('openDuplicate').hidden=!job.duplicateId;$('openDuplicate').onclick=()=>openWork(job.duplicateId);
     if(job.status==='published'){showStatus('Este aporte ya fue publicado.');$('openDuplicate').hidden=false;$('openDuplicate').onclick=()=>openWork(job.publishedId);}
     if(['queued','processing'].includes(job.status))$('jobIssues').append(text('p','Podés cerrar esta página y retomar el aporte. Si permanece en espera, el servicio de procesamiento todavía no está ejecutándose.'));
   }
   $('sendWork').onclick=attempt(async()=>{
     if(!config.registry)throw Error('El registro público todavía no está configurado. No se envió el aporte.');
-    let qrURL=$('qrURL').value.trim();if(!photo&&!qrURL)throw Error('Elegí una foto o pegá el enlace del QR.');
-    if(photo&&!qrURL){
+    let qrURL=$('textOnly').checked?'':$('qrURL').value.trim();ocrText=$('signRawText').value.slice(0,16000);if(!photo&&!qrURL&&!ocrText&&!job?.photo)throw Error('Elegí una foto o pegá el enlace del QR.');
+    if(photo&&!qrURL&&!$('textOnly').checked){
       $('uploadStatus').textContent='Leyendo cartel…';const codes=(await readQR(photo.canvas)).filter(x=>{try{return new URL(x).protocol==='https:';}catch{return false;}});
       if(codes.length>1){$('qrChoices').replaceChildren(text('p','Hay varios QR. Elegí el correspondiente al permiso de obra.'));for(const code of codes){const btn=text('button',code);btn.onclick=()=>{$('qrURL').value=code;};$('qrChoices').append(btn);}throw Error('Elegí el QR del permiso antes de enviar.');}
       if(codes.length===1){qrURL=codes[0];$('qrURL').value=qrURL;}
     }
-    if(photo&&$('useOCR').checked&&!ocrText){$('uploadStatus').textContent='Leyendo texto del cartel…';try{ocrText=await readText(photo.canvas);}catch{$('uploadStatus').textContent='OCR no disponible; el aporte continuará sin texto extraído.';}}
+    if(photo&&($('useOCR').checked||!qrURL)&&!ocrText&&!ocrAttempted){if(!qrURL)$('textOnly').checked=true;await recognizeSign();throw Error('Revisá la lectura del cartel y volvé a pulsar Enviar para guardar.');}
     if(qrURL){const url=new URL(qrURL);if(url.protocol!=='https:')throw Error('El enlace debe usar HTTPS.');}
     if(!key){key=newRecovery();remember(key);}
-    if(!job){job=await api('create',{...key,body:{id:key.id,qrURL,ocrText,parentWork}});remember(key);listDrafts();}
+    if(!job){job=await api('create',{...key,body:{id:key.id,qrURL,ocrText,parentWork,textOnly:$('textOnly').checked}});remember(key);listDrafts();}
     if(photo&&!photoStored){
       if(!config.photos)throw Error('El aporte quedó pendiente en el servidor, pero falta configurar el almacenamiento de fotos. La imagen todavía no se guardó.');
       $('uploadStatus').textContent='Guardando foto…';const r=await fetch('/api/works-photo?'+new URLSearchParams({id:key.id,revision:job.revision}),{method:'POST',headers:{Authorization:'Bearer '+key.token,'Content-Type':'image/jpeg'},body:photo.blob});const data=await r.json();if(!r.ok)throw Error(data.error);job.revision=data.revision;photoStored=true;
     }
-    $('uploadStatus').textContent='Guardando aporte…';job=await api('process',{...key,body:{revision:job.revision,qrURL}});await refreshJob();$('workUpload').close();showStatus('Aporte guardado como pendiente. Todavía no es una obra pública.');
+    $('uploadStatus').textContent='Guardando aporte…';job=await api('process',{...key,body:{revision:job.revision,qrURL,ocrText,ocrEdited,textOnly:$('textOnly').checked||!qrURL}});await refreshJob();$('workUpload').close();showStatus('Aporte guardado como pendiente. Todavía no es una obra pública.');
   });
   $('resumeWork').hidden=!key;$('resumeWork').onclick=attempt(refreshJob);$('refreshJob').onclick=attempt(refreshJob);
   $('publicConsent').onchange=()=>{if(job)renderJob();};
@@ -118,13 +137,13 @@ export async function initWorks(map){
   window.addEventListener('workselectionchange',updateLocation);
   $('locateWork').onclick=attempt(async()=>{
     map.mode('explorer');map.confirm(true);$('locationQuestion').hidden=false;
-    const f=job.extracted?.fields||{},municipality=f.municipality?.value||$('worksMunicipality').value;
+    const f={...job.signExtraction?.fields,...job.extracted?.fields},municipality=f.municipality?.value||$('worksMunicipality').value;
     if(CONFIG.ENABLED_MUNICIPALITIES.includes(municipality)){await map.municipality(municipality);$('worksMunicipality').value=municipality;map.confirm(true);}
     const address=f.address?.value;$('interpretedAddress').textContent='Dirección interpretada: '+(address||'No disponible. Buscá y elegí la ubicación manualmente.');
     let cadastral=null;if(job.extracted?.parcelIds?.length){try{cadastral=(await api('proposal',key)).proposal;}catch{showStatus('No se pudo ubicar el identificador catastral. Revisá la selección manualmente.');}}
     if(job.location){await map.locate(job.location.point,job.location.parcels.map(p=>p.id));}
     else if(cadastral){await map.locate(cadastral.point,cadastral.parcelIds);showStatus('Parcela propuesta por identificador catastral. Contrastá el mapa con la dirección interpretada.');}
-    else if(address){showStatus('Ubicando parcela…');try{const results=await map.search(address,municipality);if(results.length)await map.locate(results[0].point,job.extracted.parcelIds);else showStatus('Sin coincidencias. Corregí la ubicación en el mapa.');}catch(e){showStatus(e.message);}}
+    else if(address){showStatus('Ubicando parcela…');try{const results=await map.search(address,municipality);if(results.length)await map.locate(results[0].point,job.extracted?.parcelIds||[]);else showStatus('Sin coincidencias. Corregí la ubicación en el mapa.');}catch(e){showStatus(e.message);}}
     updateLocation();$('map').scrollIntoView({behavior:'smooth',block:'center'});
   });
   $('correctWorkLocation').onclick=()=>{map.confirm(true);$('address').focus();showStatus('Buscá otra dirección o seleccioná las parcelas correctas.');};
