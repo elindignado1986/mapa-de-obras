@@ -1,5 +1,6 @@
 const store=require('../server/works/store.cjs');
 const {extractSignText}=require('../server/works/sign-text.cjs');
+const {previewFields}=require('../server/works/preview.cjs');
 const {safeURL}=require('../server/works/permit.cjs');
 const {eligibility,findDuplicate,findCandidates,publish}=require('../server/works/publication.cjs');
 const {resolveParcels,proposeParcels}=require('../server/works/parcels.cjs');
@@ -46,7 +47,13 @@ async function handler(req,res){
     if(action==='publish'&&job.status==='published')return res.status(200).json({result:'existing',id:job.publishedId});
     if(job.status==='published')throw Object.assign(Error('La obra ya es pública. Creá un aporte nuevo para conservar su historial.'),{status:409});
     if(body.revision!==job.revision)throw Object.assign(Error('El aporte cambió. Actualizá su estado.'),{status:409});
+    if(action==='preview'){
+      job.previewFields=previewFields(body.fields);
+      await store.saveJob(job,body.revision);
+      return res.status(200).json({...store.privateView(job),publicationIssues:eligibility(job)});
+    }
     if(action==='process'){
+      if(Array.isArray(body.detectedQR))job.input.detectedQR=body.detectedQR.filter(x=>typeof x==='string').slice(0,8).map(x=>x.slice(0,2000));
       if(typeof body.ocrText==='string'){job.input.ocrText=body.ocrText.slice(0,16000);job.input.ocrEdited=body.ocrEdited===true;}
       job.signExtraction=extractSignText(job.input.ocrText||'',undefined,job.input.ocrEdited);
       if(body.textOnly===true||(!body.qrURL&&!job.input.qrURL)){

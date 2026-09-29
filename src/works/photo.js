@@ -31,9 +31,34 @@ export async function readQR(canvas){
   return [...results];
 }
 
-export async function readText(canvas){
+export async function readText(canvas,onProgress=()=>{}){
   const {createWorker}=await import('tesseract.js');
   const worker=await createWorker('spa',1,{workerPath:'/data/works-ocr/worker.min.js',corePath:'/data/works-ocr',langPath:'/data/works-ocr',workerBlobURL:false});
-  const timeout=setTimeout(()=>worker.terminate(),60000);
-  try{return (await worker.recognize(canvas)).data.text.slice(0,16000);}finally{clearTimeout(timeout);await worker.terminate();}
+  const timeout=setTimeout(()=>worker.terminate(),90000);
+  try{
+    // Upscale small lettering and normalize contrast before layout recognition.
+    const prepared=document.createElement('canvas'),scale=Math.min(3,2800/canvas.width,3600/canvas.height);
+    prepared.width=Math.round(canvas.width*scale);prepared.height=Math.round(canvas.height*scale);
+    const ctx=prepared.getContext('2d',{willReadFrequently:true});ctx.drawImage(canvas,0,0,prepared.width,prepared.height);
+    const pixels=ctx.getImageData(0,0,prepared.width,prepared.height),hist=new Uint32Array(256);
+    for(let i=0;i<pixels.data.length;i+=4)hist[Math.round(.299*pixels.data[i]+.587*pixels.data[i+1]+.114*pixels.data[i+2])]++;
+    const total=prepared.width*prepared.height,percentile=p=>{let n=0;for(let i=0;i<256;i++){n+=hist[i];if(n>=total*p)return i;}return 255;},lo=percentile(.02),hi=percentile(.98);
+    for(let i=0;i<pixels.data.length;i+=4){const gray=.299*pixels.data[i]+.587*pixels.data[i+1]+.114*pixels.data[i+2],v=Math.max(0,Math.min(255,(gray-lo)*255/Math.max(40,hi-lo)));pixels.data[i]=pixels.data[i+1]=pixels.data[i+2]=v;}
+    ctx.putImageData(pixels,0,0);
+    await worker.setParameters({preserve_interword_spaces:'1'});
+    onProgress('Leyendo los datos del cartel…');
+    const full=(await worker.recognize(prepared)).data.text;
+    // Independent passes preserve lines when a QR or narrow table disrupts the
+    // full-page layout. Crop proportions describe zones, never specific data.
+    const texts=[full];
+    const regions=[[.22,.20,.77,.61],[.67,.25,.32,.43]];
+    for(const [index,[x,y,w,h]]of regions.entries()){
+      onProgress(index?'Leyendo la tabla de alturas…':'Separando dirección y tipo de obra…');
+      await worker.setParameters({tessedit_pageseg_mode:'6'});
+      const crop=document.createElement('canvas');crop.width=Math.round(prepared.width*w);crop.height=Math.round(prepared.height*h);
+      crop.getContext('2d').drawImage(prepared,Math.round(prepared.width*x),Math.round(prepared.height*y),crop.width,crop.height,0,0,crop.width,crop.height);
+      texts.push((await worker.recognize(crop)).data.text);
+    }
+    return texts.join('\n\n').slice(0,16000);
+  }finally{clearTimeout(timeout);await worker.terminate();}
 }

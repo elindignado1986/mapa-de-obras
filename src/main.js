@@ -88,5 +88,14 @@ const workBridge={
   await restore({schemaVersion:1,municipality:l.municipality,parcel:l.parcel,parcels:l.parcels,datasetVersion:l.datasetVersion,footprint:work.footprint?.geometry.coordinates[0].slice(0,-1)||null,height:work.height,heightMode:'meters',heightInput:work.height,date:b.state.date,minutes:Math.round(b.state.minutes),camera:{flat:true,yaw:0,pitch:.72,zoom:2.8,panX:0,panY:0}});
   applyView(false);sync();renderer.workMarkers=copy?[]:workBridge.markers.filter(w=>w.municipality===municipality);
  },
- search:(query,id)=>geocoder.search(query,id),
+ clearProposal(){selected=null;selections=[];footprint=null;height=0;applyView(true);sync();},
+ preview(meters){
+  const value=Number(meters);
+  if(!Number.isFinite(value)||value<.1||value>CONFIG.MAX_HEIGHT)throw Error('Ingresá una altura entre 0,1 y 300 metros.');
+  if(!selected)throw Error('No encontramos la parcela. Seleccionala en el mapa para armar el volumen.');
+  height=value;heightInput=value;heightMode='meters';footprint=selected.geometry;
+  workSelection=false;document.body.classList.remove('works-locating');
+  renderer.setOrigin(center(footprint));Object.assign(b.state,{panX:0,panY:0,zoom:2.8});applyView(false);sync();scheduleLoad();
+ },
+ search:(query,id)=>geocoder.search(query,id,AbortSignal.timeout(12000)),
 };
